@@ -1,0 +1,28 @@
+env: "local" # local, dev, prod
+# storage_path: "./storage.db"
+http_server:
+  address: "0.0.0.0:8000"
+  timeout: 10s
+  idle_timeout: 60s
+  user: "abdu1bari"
+  password: "7721"
+
+# nats-streaming:
+#   host : "127.0.0.1"
+#   port : "4222"
+#   user : "nats"
+#   password : "nats"
+#   cluster_id : "test-cluster"
+
+database:
+  host : "127.0.0.1"
+  port : "5431"
+  user : "postgres"
+  password : "postgres"
+  dbname : "l0"
+
+# redis:
+#   host : "127.0.0.1"
+#   port : "6378"
+#   user : ""
+#   password : ""
