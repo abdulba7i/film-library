@@ -7,22 +7,13 @@ http_server:
   user: "abdu1bari"
   password: "7721"
 
-# nats-streaming:
-#   host : "127.0.0.1"
-#   port : "4222"
-#   user : "nats"
-#   password : "nats"
-#   cluster_id : "test-cluster"
-
 database:
   host : "127.0.0.1"
-  port : "5431"
+  port : "5432"
   user : "postgres"
   password : "postgres"
-  dbname : "l0"
+  dbname : "postgres"
 
-# redis:
-#   host : "127.0.0.1"
-#   port : "6378"
-#   user : ""
-#   password : ""
+development:
+  driver: postgres
+  open: user=postgres password=postgres dbname=postgres host=127.0.0.1 port=5432 sslmode=disable
