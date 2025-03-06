@@ -21,10 +21,11 @@ type Actor struct {
 }
 
 type Film struct {
-	Id           int     `json:"id"`
 	Name         string  `json:"name"`
+	Description  string  `json:"description"`
 	Release_date string  `json:"release_date"`
 	Rating       float32 `json:"rating"`
+	List_actors  []Actor `json:"list_actors"`
 }
 
 func Connect(c config.Database) (*Storage, error) {
@@ -36,9 +37,42 @@ func Connect(c config.Database) (*Storage, error) {
 		return nil, fmt.Errorf("%s, %w", op, err)
 	}
 
+	defer db.Close()
+
 	log.Printf("Database connected was created: %s", sqlInfo)
 
-	err = goose.Up(db, "file://./migrations")
+	if err = goose.Up(db, "./migrations"); err != nil {
+		return nil, fmt.Errorf("%s, %w", op, err)
+	}
 
-	return &Storage{}, nil
+	if err = goose.Down(db, "./migrations"); err != nil {
+		return nil, fmt.Errorf("%s, %w", op, err)
+	}
+	return &Storage{db: db}, nil
+}
+
+func (s *Storage) AddedInfoActor(tx *sql.Tx, actor Actor) error {
+	const op = "storage.postgres.AddedInfoActor"
+
+	query := `INSERT INTO actor (name, bio, date_of_birth) VALUES ($1, $2, $3)`
+
+	_, err := tx.Exec(query, actor.Name, actor.Bio, actor.Date_of_birth)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) ChangeInfoActor(tx *sql.Tx, actor Actor) error {
+	const op = "storage.postgres.ChangeInfoActor"
+
+	query := `UPDATE actor SET name = $1, bio = $2, date_of_birth = $3 WHERE id = $4`
+
+	_, err := tx.Exec(query, actor.Name, actor.Bio, actor.Date_of_birth, actor.Id)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
 }

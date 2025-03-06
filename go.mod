@@ -4,10 +4,7 @@ go 1.24.0
 
 require github.com/ilyakaznacheev/cleanenv v1.5.0
 
-require (
-	github.com/lib/pq v1.10.9 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
-)
+require github.com/pkg/errors v0.9.1 // indirect
 
 require (
 	github.com/BurntSushi/toml v1.4.0 // indirect

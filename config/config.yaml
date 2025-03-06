@@ -17,3 +17,6 @@ database:
 development:
   driver: postgres
   open: user=postgres password=postgres dbname=postgres host=127.0.0.1 port=5432 sslmode=disable
+
+  # goose -dir ./migrations postgres "user=postgres password=postgres dbname=postgres host=127.0.0.1 port=5432 sslmode=disable" down
+  # export PATH=$PATH:$(go env GOPATH)/bin
