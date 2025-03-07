@@ -14,18 +14,18 @@ type Storage struct {
 }
 
 type Actor struct {
-	Id            int    `json:"id"`
-	Name          string `json:"name"`
-	Bio           string `json:"bio"`
-	Date_of_birth string `json:"date_of_birth"`
+	Id          int    `json:"id"`
+	Name        string `json:"name"`
+	Gender      string `json:"bio"`
+	DateOfBirth string `json:"date_of_birth"`
 }
 
 type Film struct {
-	Name         string  `json:"name"`
-	Description  string  `json:"description"`
-	Release_date string  `json:"release_date"`
-	Rating       float32 `json:"rating"`
-	List_actors  []Actor `json:"list_actors"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Releasedate string  `json:"release_date"`
+	Rating      float32 `json:"rating"`
+	Listactors  []Actor `json:"list_actors"`
 }
 
 func Connect(c config.Database) (*Storage, error) {
@@ -56,7 +56,7 @@ func (s *Storage) AddedInfoActor(tx *sql.Tx, actor Actor) error {
 
 	query := `INSERT INTO actor (name, bio, date_of_birth) VALUES ($1, $2, $3)`
 
-	_, err := tx.Exec(query, actor.Name, actor.Bio, actor.Date_of_birth)
+	_, err := tx.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -69,7 +69,7 @@ func (s *Storage) ChangeInfoActor(tx *sql.Tx, actor Actor) error {
 
 	query := `UPDATE actor SET name = $1, bio = $2, date_of_birth = $3 WHERE id = $4`
 
-	_, err := tx.Exec(query, actor.Name, actor.Bio, actor.Date_of_birth, actor.Id)
+	_, err := tx.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth, actor.Id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
