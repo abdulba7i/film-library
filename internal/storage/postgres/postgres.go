@@ -1,4 +1,4 @@
-package main
+package postgres
 
 import (
 	"database/sql"
@@ -141,4 +141,124 @@ func (s *Storage) DeleteInfoFilm(tx *sql.Tx, id int) error {
 	}
 
 	return nil
+}
+
+func (s *Storage) GetAllFilms(tx *sql.Tx, sortBy string) ([]Film, error) {
+	const op = "storage.postgres.GetAllFilms"
+
+	orderClause := "ORDER BY rating DESC" // По умолчанию сортировка по рейтингу
+	switch sortBy {
+	case "name":
+		orderClause = "ORDER BY name"
+	case "release_date":
+		orderClause = "ORDER BY release_date"
+	}
+
+	query := fmt.Sprintf(`SELECT f.id, f.name, f.description, f.release_date, f.rating, a.id, a.name, a.gender, a.date_of_birth
+	FROM film f
+	JOIN actor_film af ON f.id = af.film_id
+	JOIN actor a ON a.id = af.actor_id %s`, orderClause)
+
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close() // Обязательно закрыть rows после использования
+
+	var films []Film
+	filmMap := make(map[int]*Film)
+
+	for rows.Next() {
+		var film Film
+		var actor Actor
+
+		err = rows.Scan(&film.Id, &film.Name, &film.Description, &film.Releasedate, &film.Rating, &actor.Id, &actor.Name, &actor.Gender, &actor.DateOfBirth)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+
+		// Проверяем, есть ли уже фильм в списке
+		if _, exists := filmMap[film.Id]; !exists {
+			filmMap[film.Id] = &film
+			films = append(films, film)
+		}
+
+		// Добавляем актера к фильму
+		filmMap[film.Id].Listactors = append(filmMap[film.Id].Listactors, actor)
+	}
+
+	return films, nil
+}
+
+func (s *Storage) SearchFilm(tx *sql.Tx, actor, film string) (Film, error) {
+	const op = "storage.postgres.SearchFilm"
+
+	query := `SELECT f.id, f.name, f.description, f.release_date, f.rating, a.id, a.name, a.gender, a.date_of_birth
+	FROM film f
+	JOIN actor_film af ON f.id = af.film_id
+	JOIN actor a ON a.id = af.actor_id
+	WHERE f.name ILIKE $1 AND a.name ILIKE $2 LIMIT 1`
+
+	rows, err := tx.Query(query, "%"+film+"%", "%"+actor+"%")
+	if err != nil {
+		return Film{}, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	var filmFound Film
+	filmFound.Listactors = []Actor{} // Инициализация списка актёров
+
+	if rows.Next() {
+		var foundFilm Film
+		var foundActor Actor
+
+		err = rows.Scan(&foundFilm.Id, &foundFilm.Name, &foundFilm.Description, &foundFilm.Releasedate, &foundFilm.Rating, &foundActor.Id, &foundActor.Name, &foundActor.Gender, &foundActor.DateOfBirth)
+		if err != nil {
+			return Film{}, fmt.Errorf("%s: %w", op, err)
+		}
+
+		filmFound = foundFilm
+		filmFound.Listactors = append(filmFound.Listactors, foundActor) // Добавляем актёра
+	}
+
+	return filmFound, nil
+}
+
+func (s *Storage) GetActorsWithFilms(tx *sql.Tx) (map[Actor][]Film, error) {
+	const op = "storage.postgres.GetActorsWithFilms"
+
+	query := `SELECT a.id, a.name, a.gender, a.date_of_birth, f.id, f.name, f.description, f.release_date, f.rating
+	FROM actor a
+	JOIN actor_film af ON a.id = af.actor_id
+	JOIN film f ON f.id = af.film_id`
+
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	actorsWithFilms := make(map[Actor][]Film)
+
+	for rows.Next() {
+		var actor Actor
+		var film Film
+
+		err = rows.Scan(&actor.Id, &actor.Name, &actor.Gender, &actor.DateOfBirth, &film.Id, &film.Name, &film.Description, &film.Releasedate, &film.Rating)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+
+		// Проверка на наличие актера в мапе
+		if _, exists := actorsWithFilms[actor]; !exists {
+			actorsWithFilms[actor] = []Film{}
+		}
+		actorsWithFilms[actor] = append(actorsWithFilms[actor], film)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return actorsWithFilms, nil
 }
