@@ -5,7 +5,9 @@ import (
 	"film-library/internal/config"
 	"fmt"
 	"log"
+	"os"
 
+	_ "github.com/lib/pq"
 	"github.com/pressly/goose"
 )
 
@@ -38,27 +40,25 @@ func Connect(c config.Database) (*Storage, error) {
 		return nil, fmt.Errorf("%s, %w", op, err)
 	}
 
-	defer db.Close()
-
 	log.Printf("Database connected was created: %s", sqlInfo)
 
-	if err = goose.Up(db, "./migrations"); err != nil {
+	dir, _ := os.Getwd()
+	log.Println("Current working directory:", dir)
+
+	if err = goose.Up(db, "./internal/storage/postgres/migrations"); err != nil {
 		return nil, fmt.Errorf("%s, %w", op, err)
 	}
 
-	if err = goose.Down(db, "./migrations"); err != nil {
-		return nil, fmt.Errorf("%s, %w", op, err)
-	}
 	return &Storage{db: db}, nil
 }
 
 // Actor:
-func (s *Storage) AddedInfoActor(tx *sql.Tx, actor Actor) error {
+func (s *Storage) AddedInfoActor(actor Actor) error {
 	const op = "storage.postgres.AddedInfoActor"
 
-	query := `INSERT INTO actor (name, bio, date_of_birth) VALUES ($1, $2, $3)`
+	query := `INSERT INTO actors (name, gender, date_of_birth) VALUES ($1, $2, $3)`
 
-	_, err := tx.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth)
+	_, err := s.db.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -66,12 +66,16 @@ func (s *Storage) AddedInfoActor(tx *sql.Tx, actor Actor) error {
 	return nil
 }
 
-func (s *Storage) ChangeInfoActor(tx *sql.Tx, actor Actor) error {
+// if err = goose.Down(db, "./migrations"); err != nil {
+// 	return nil, fmt.Errorf("%s, %w", op, err)
+// }
+
+func (s *Storage) ChangeInfoActor(actor Actor) error {
 	const op = "storage.postgres.ChangeInfoActor"
 
 	query := `UPDATE actor SET name = $1, bio = $2, date_of_birth = $3 WHERE id = $4`
 
-	_, err := tx.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth, actor.Id)
+	_, err := s.db.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth, actor.Id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -79,12 +83,12 @@ func (s *Storage) ChangeInfoActor(tx *sql.Tx, actor Actor) error {
 	return nil
 }
 
-func (s *Storage) DeleteInfoActor(tx *sql.Tx, id int) error {
+func (s *Storage) DeleteInfoActor(id int) error {
 	const op = "storage.postgres.DeleteInfoActor"
 
 	query := `DELETE FROM actor WHERE id = $1`
 
-	_, err := tx.Exec(query, id)
+	_, err := s.db.Exec(query, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -94,13 +98,13 @@ func (s *Storage) DeleteInfoActor(tx *sql.Tx, id int) error {
 
 // Film:
 
-func (s *Storage) AddedInfoFilm(tx *sql.Tx, film Film) error {
+func (s *Storage) AddedInfoFilm(film Film) error {
 	const op = "storage.postgres.AddedInfoFilm"
 
 	query := `INSERT INTO film (name, description, release_date, rating) VALUES ($1, $2, $3, $4) RETURNING id`
 	var filmID int
 
-	err := tx.QueryRow(query, film.Name, film.Description, film.Releasedate, film.Rating).Scan(&filmID)
+	err := s.db.QueryRow(query, film.Name, film.Description, film.Releasedate, film.Rating).Scan(&filmID)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -108,7 +112,7 @@ func (s *Storage) AddedInfoFilm(tx *sql.Tx, film Film) error {
 	for _, actor := range film.Listactors {
 		query = `INSERT INTO actor_film (actor_id, film_id) VALUES ($1, $2)`
 
-		_, err = tx.Exec(query, actor.Id, filmID)
+		_, err = s.db.Exec(query, actor.Id, filmID)
 		if err != nil {
 			return fmt.Errorf("%s: %w", op, err)
 		}
@@ -117,12 +121,12 @@ func (s *Storage) AddedInfoFilm(tx *sql.Tx, film Film) error {
 	return nil
 }
 
-func (s *Storage) ChangeInfoFilm(tx *sql.Tx, film Film) error {
+func (s *Storage) ChangeInfoFilm(film Film) error {
 	const op = "storage.postgres.ChangeInfoFilm"
 
 	query := `UPDATE film SET name = $1, description = $2, release_date = $3, rating = $4 WHERE id = $5`
 
-	_, err := tx.Exec(query, film.Name, film.Description, film.Releasedate, film.Rating, film.Id)
+	_, err := s.db.Exec(query, film.Name, film.Description, film.Releasedate, film.Rating, film.Id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -130,12 +134,12 @@ func (s *Storage) ChangeInfoFilm(tx *sql.Tx, film Film) error {
 	return nil
 }
 
-func (s *Storage) DeleteInfoFilm(tx *sql.Tx, id int) error {
+func (s *Storage) DeleteInfoFilm(id int) error {
 	const op = "storage.postgres.DeleteInfoFilm"
 
 	query := `DELETE FROM film WHERE id = $1`
 
-	_, err := tx.Exec(query, id)
+	_, err := s.db.Exec(query, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -143,7 +147,7 @@ func (s *Storage) DeleteInfoFilm(tx *sql.Tx, id int) error {
 	return nil
 }
 
-func (s *Storage) GetAllFilms(tx *sql.Tx, sortBy string) ([]Film, error) {
+func (s *Storage) GetAllFilms(sortBy string) ([]Film, error) {
 	const op = "storage.postgres.GetAllFilms"
 
 	orderClause := "ORDER BY rating DESC" // По умолчанию сортировка по рейтингу
@@ -159,7 +163,7 @@ func (s *Storage) GetAllFilms(tx *sql.Tx, sortBy string) ([]Film, error) {
 	JOIN actor_film af ON f.id = af.film_id
 	JOIN actor a ON a.id = af.actor_id %s`, orderClause)
 
-	rows, err := tx.Query(query)
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -190,7 +194,7 @@ func (s *Storage) GetAllFilms(tx *sql.Tx, sortBy string) ([]Film, error) {
 	return films, nil
 }
 
-func (s *Storage) SearchFilm(tx *sql.Tx, actor, film string) (Film, error) {
+func (s *Storage) SearchFilm(actor, film string) (Film, error) {
 	const op = "storage.postgres.SearchFilm"
 
 	query := `SELECT f.id, f.name, f.description, f.release_date, f.rating, a.id, a.name, a.gender, a.date_of_birth
@@ -199,7 +203,7 @@ func (s *Storage) SearchFilm(tx *sql.Tx, actor, film string) (Film, error) {
 	JOIN actor a ON a.id = af.actor_id
 	WHERE f.name ILIKE $1 AND a.name ILIKE $2 LIMIT 1`
 
-	rows, err := tx.Query(query, "%"+film+"%", "%"+actor+"%")
+	rows, err := s.db.Query(query, "%"+film+"%", "%"+actor+"%")
 	if err != nil {
 		return Film{}, fmt.Errorf("%s: %w", op, err)
 	}
@@ -224,7 +228,7 @@ func (s *Storage) SearchFilm(tx *sql.Tx, actor, film string) (Film, error) {
 	return filmFound, nil
 }
 
-func (s *Storage) GetActorsWithFilms(tx *sql.Tx) (map[Actor][]Film, error) {
+func (s *Storage) GetActorsWithFilms() (map[Actor][]Film, error) {
 	const op = "storage.postgres.GetActorsWithFilms"
 
 	query := `SELECT a.id, a.name, a.gender, a.date_of_birth, f.id, f.name, f.description, f.release_date, f.rating
@@ -232,7 +236,7 @@ func (s *Storage) GetActorsWithFilms(tx *sql.Tx) (map[Actor][]Film, error) {
 	JOIN actor_film af ON a.id = af.actor_id
 	JOIN film f ON f.id = af.film_id`
 
-	rows, err := tx.Query(query)
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
