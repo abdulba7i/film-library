@@ -34,18 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	actor := postgres.Actor{
-		Name:        "Brad Pitt",
-		Gender:      "male",
-		DateOfBirth: "1963-12-18",
-	}
-
-	err = storage.AddedInfoActor(actor)
 	if err != nil {
-		// log.Error("failed to add actor", "error", sl.Err(err))
-		// log.Error("failed to add actor", "error", err)
-		log.Error("failed to add actor", slog.String("error", err.Error()))
-
+		log.Error("failed to change actor", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 

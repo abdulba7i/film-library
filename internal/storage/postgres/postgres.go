@@ -18,7 +18,7 @@ type Storage struct {
 type Actor struct {
 	Id          int    `json:"id"`
 	Name        string `json:"name"`
-	Gender      string `json:"bio"`
+	Gender      string `json:"gender"`
 	DateOfBirth string `json:"date_of_birth"`
 }
 
@@ -28,7 +28,7 @@ type Film struct {
 	Description string  `json:"description"`
 	Releasedate string  `json:"release_date"`
 	Rating      float32 `json:"rating"`
-	Listactors  []Actor `json:"list_actors"`
+	ListActors  []Actor `json:"list_actors"`
 }
 
 func Connect(c config.Database) (*Storage, error) {
@@ -53,27 +53,22 @@ func Connect(c config.Database) (*Storage, error) {
 }
 
 // Actor:
-func (s *Storage) AddedInfoActor(actor Actor) error {
+
+func (s *Storage) AddedInfoActor(actor *Actor) error {
 	const op = "storage.postgres.AddedInfoActor"
 
-	query := `INSERT INTO actors (name, gender, date_of_birth) VALUES ($1, $2, $3)`
-
-	_, err := s.db.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth)
+	query := `INSERT INTO actors (name, gender, date_of_birth) VALUES ($1, $2, $3) RETURNING id`
+	err := s.db.QueryRow(query, actor.Name, actor.Gender, actor.DateOfBirth).Scan(&actor.Id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-
 	return nil
 }
 
-// if err = goose.Down(db, "./migrations"); err != nil {
-// 	return nil, fmt.Errorf("%s, %w", op, err)
-// }
-
-func (s *Storage) ChangeInfoActor(actor Actor) error {
+func (s *Storage) UpdateActor(actor Actor) error {
 	const op = "storage.postgres.ChangeInfoActor"
 
-	query := `UPDATE actor SET name = $1, bio = $2, date_of_birth = $3 WHERE id = $4`
+	query := `UPDATE actors SET name = $1, gender = $2, date_of_birth = $3 WHERE id = $4`
 
 	_, err := s.db.Exec(query, actor.Name, actor.Gender, actor.DateOfBirth, actor.Id)
 	if err != nil {
@@ -86,7 +81,7 @@ func (s *Storage) ChangeInfoActor(actor Actor) error {
 func (s *Storage) DeleteInfoActor(id int) error {
 	const op = "storage.postgres.DeleteInfoActor"
 
-	query := `DELETE FROM actor WHERE id = $1`
+	query := `DELETE FROM actors WHERE id = $1`
 
 	_, err := s.db.Exec(query, id)
 	if err != nil {
@@ -101,30 +96,75 @@ func (s *Storage) DeleteInfoActor(id int) error {
 func (s *Storage) AddedInfoFilm(film Film) error {
 	const op = "storage.postgres.AddedInfoFilm"
 
-	query := `INSERT INTO film (name, description, release_date, rating) VALUES ($1, $2, $3, $4) RETURNING id`
-	var filmID int
-
-	err := s.db.QueryRow(query, film.Name, film.Description, film.Releasedate, film.Rating).Scan(&filmID)
+	// Начинаем транзакцию
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: failed to begin transaction: %w", op, err)
+	}
+	defer tx.Rollback()
+
+	// Добавляем фильм
+	var filmID int
+	err = tx.QueryRow(`
+        INSERT INTO films (name, description, release_date, rating)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id`,
+		film.Name, film.Description, film.Releasedate, film.Rating,
+	).Scan(&filmID)
+	if err != nil {
+		return fmt.Errorf("%s: failed to insert film: %w", op, err)
 	}
 
-	for _, actor := range film.Listactors {
-		query = `INSERT INTO actor_film (actor_id, film_id) VALUES ($1, $2)`
+	// Добавляем актёров
+	for _, actor := range film.ListActors {
+		var actorID int
 
-		_, err = s.db.Exec(query, actor.Id, filmID)
+		// Проверяем, существует ли актёр
+		err := tx.QueryRow(`
+            SELECT id FROM actors WHERE name = $1`,
+			actor.Name,
+		).Scan(&actorID)
+
 		if err != nil {
-			return fmt.Errorf("%s: %w", op, err)
+			if err == sql.ErrNoRows {
+				// Актёр не существует, создаём нового
+				err = tx.QueryRow(`
+                    INSERT INTO actors (name, gender, date_of_birth)
+                    VALUES ($1, $2, $3)
+                    RETURNING id`,
+					actor.Name, actor.Gender, actor.DateOfBirth,
+				).Scan(&actorID)
+				if err != nil {
+					return fmt.Errorf("%s: failed to insert actor: %w", op, err)
+				}
+			} else {
+				return fmt.Errorf("%s: failed to check actor existence: %w", op, err)
+			}
 		}
+
+		// Связываем фильм и актёра
+		_, err = tx.Exec(`
+            INSERT INTO actor_film (film_id, actor_id)
+            VALUES ($1, $2)`,
+			filmID, actorID,
+		)
+		if err != nil {
+			return fmt.Errorf("%s: failed to insert film-actor link: %w", op, err)
+		}
+	}
+
+	// Коммитим транзакцию
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: failed to commit transaction: %w", op, err)
 	}
 
 	return nil
 }
 
-func (s *Storage) ChangeInfoFilm(film Film) error {
+func (s *Storage) UpdateFilm(film Film) error {
 	const op = "storage.postgres.ChangeInfoFilm"
 
-	query := `UPDATE film SET name = $1, description = $2, release_date = $3, rating = $4 WHERE id = $5`
+	query := `UPDATE films SET name = $1, description = $2, release_date = $3, rating = $4 WHERE id = $5`
 
 	_, err := s.db.Exec(query, film.Name, film.Description, film.Releasedate, film.Rating, film.Id)
 	if err != nil {
@@ -137,7 +177,7 @@ func (s *Storage) ChangeInfoFilm(film Film) error {
 func (s *Storage) DeleteInfoFilm(id int) error {
 	const op = "storage.postgres.DeleteInfoFilm"
 
-	query := `DELETE FROM film WHERE id = $1`
+	query := `DELETE FROM films WHERE id = $1`
 
 	_, err := s.db.Exec(query, id)
 	if err != nil {
@@ -146,6 +186,41 @@ func (s *Storage) DeleteInfoFilm(id int) error {
 
 	return nil
 }
+
+// func (s *Storage) GetAllFilms(sortBy string) ([]Film, error) {
+// 	const op = "storage.postgres.GetAllFilms"
+
+// 	orderClause := "ORDER BY rating DESC"
+// 	switch sortBy {
+// 	case "name":
+// 		orderClause = "ORDER BY name"
+// 	case "release_date":
+// 		orderClause = "ORDER BY release_date"
+// 	}
+
+// 	query := fmt.Sprintf(`
+// 	SELECT f.id, f.name, f.description, f.release_date, f.rating
+// 	FROM films f
+// 		%s`, orderClause)
+
+// 	var films []Film
+
+// 	rows, err := s.db.Query(query)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("%s: %w", op, err)
+// 	}
+// 	defer rows.Close()
+
+// 	for rows.Next() {
+// 		var film Film
+// 		if err := rows.Scan(&film.Id, &film.Name, &film.Description, &film.Releasedate, &film.Rating); err != nil {
+// 			return nil, fmt.Errorf("%s: %w", op, err)
+// 		}
+// 		films = append(films, film)
+// 	}
+
+// 	return films, nil
+// }
 
 func (s *Storage) GetAllFilms(sortBy string) ([]Film, error) {
 	const op = "storage.postgres.GetAllFilms"
@@ -158,37 +233,48 @@ func (s *Storage) GetAllFilms(sortBy string) ([]Film, error) {
 		orderClause = "ORDER BY release_date"
 	}
 
-	query := fmt.Sprintf(`SELECT f.id, f.name, f.description, f.release_date, f.rating, a.id, a.name, a.gender, a.date_of_birth
-	FROM film f
-	JOIN actor_film af ON f.id = af.film_id
-	JOIN actor a ON a.id = af.actor_id %s`, orderClause)
+	query := fmt.Sprintf(`
+        SELECT f.id, f.name, f.description, f.release_date, f.rating, 
+               a.id, a.name, a.gender, a.date_of_birth
+        FROM films f
+        JOIN actor_film af ON f.id = af.film_id
+        JOIN actors a ON a.id = af.actor_id
+        %s`, orderClause)
 
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
-	defer rows.Close() // Обязательно закрыть rows после использования
+	defer rows.Close()
 
-	var films []Film
 	filmMap := make(map[int]*Film)
 
 	for rows.Next() {
 		var film Film
 		var actor Actor
 
-		err = rows.Scan(&film.Id, &film.Name, &film.Description, &film.Releasedate, &film.Rating, &actor.Id, &actor.Name, &actor.Gender, &actor.DateOfBirth)
+		err = rows.Scan(
+			&film.Id, &film.Name, &film.Description, &film.Releasedate, &film.Rating,
+			&actor.Id, &actor.Name, &actor.Gender, &actor.DateOfBirth,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", op, err)
 		}
 
-		// Проверяем, есть ли уже фильм в списке
+		// Если фильм ещё не добавлен в filmMap, добавляем его
 		if _, exists := filmMap[film.Id]; !exists {
+			film.ListActors = []Actor{} // Инициализируем пустой слайс актёров
 			filmMap[film.Id] = &film
-			films = append(films, film)
 		}
 
-		// Добавляем актера к фильму
-		filmMap[film.Id].Listactors = append(filmMap[film.Id].Listactors, actor)
+		// Добавляем актёра к фильму
+		filmMap[film.Id].ListActors = append(filmMap[film.Id].ListActors, actor)
+	}
+
+	// Преобразуем filmMap в слайс фильмов
+	films := make([]Film, 0, len(filmMap))
+	for _, film := range filmMap {
+		films = append(films, *film)
 	}
 
 	return films, nil
@@ -210,7 +296,7 @@ func (s *Storage) SearchFilm(actor, film string) (Film, error) {
 	defer rows.Close()
 
 	var filmFound Film
-	filmFound.Listactors = []Actor{} // Инициализация списка актёров
+	filmFound.ListActors = []Actor{} // Инициализация списка актёров
 
 	if rows.Next() {
 		var foundFilm Film
@@ -222,7 +308,7 @@ func (s *Storage) SearchFilm(actor, film string) (Film, error) {
 		}
 
 		filmFound = foundFilm
-		filmFound.Listactors = append(filmFound.Listactors, foundActor) // Добавляем актёра
+		filmFound.ListActors = append(filmFound.ListActors, foundActor) // Добавляем актёра
 	}
 
 	return filmFound, nil
